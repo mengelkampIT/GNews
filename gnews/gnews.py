@@ -18,8 +18,6 @@ except ImportError:
 from gnews.utils.constants import AVAILABLE_COUNTRIES, AVAILABLE_LANGUAGES, TOPICS, BASE_URL, USER_AGENT
 from gnews.utils.utils import connect_database, post_database, process_url
 
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO,
-                    datefmt='%m/%d/%Y %I:%M:%S %p')
 logger = logging.getLogger(__name__)
 
 
