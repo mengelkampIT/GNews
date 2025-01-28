@@ -10,8 +10,6 @@ from bs4 import BeautifulSoup as Soup
 from gnews.utils.constants import AVAILABLE_COUNTRIES, AVAILABLE_LANGUAGES, SECTIONS, TOPICS, BASE_URL, USER_AGENT
 from gnews.utils.utils import process_url
 
-logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO,
-                    datefmt='%m/%d/%Y %I:%M:%S %p')
 logger = logging.getLogger(__name__)
 
 
