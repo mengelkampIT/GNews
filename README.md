@@ -46,37 +46,25 @@
       <li>
          <a href="#getting-started">Getting Started 🚀</a>
          <ul>
-            <li><a href="#installation">Installation 📦</a></li>
+            <li><a href="#1-installing-the-gnews-package">Installing the GNews package 📦</a></li>
          </ul>
         <ul>
-            <li><a href="#setup-with-docker">Setup with Docker 🐳</a></li>
+            <li><a href="#2-setting-up-gnews-for-local-development">Setting Up GNews for Local Development 🧑‍💻</a></li>
          </ul>
       </li>
       <li>
-         <a href="#usage">Usage 🧩</a>
+         <a href="#example-usage">Usage 🧩</a>
          <ul>
-            <li>   <a href="#Get-top-news">Top News 🌟</a> </li>
-         </ul>
-          <ul>
-            <li>   <a href="#Get-news-by-keyword">News by Keywords 🔎</a> </li>
-          </ul>
-         <ul>
-            <li>   <a href="#Get-news-by-major-topic">News by Major Topics 🚀</a> </li>
-         </ul>
-         <ul>
-            <li>   <a href="#Get-news-by-geo-location">News by GEO Location 🌎</a> </li>
-         </ul>
-         <ul>
-            <li>   <a href="#supported-countries"> Supported Countries 🌐</a> </li>
-         </ul>
-         <ul>
-            <li> <a href="#supported-languages"> Supported Languages 🌍</a> </li>
-         </ul>
-         <ul>
-            <li>   <a href="#article-properties"> Article Properties 📝</a> </li>
-         </ul>
-         <ul>
-            <li>   <a href="#getting-full-article"> Getting Full Article 📰</a> </li>
+            <li><a href="#Get-top-news">Top News 🌟</a></li>
+            <li><a href="#Get-news-by-keyword">News by Keywords 🔎</a></li>
+            <li><a href="#Get-news-by-major-topic">News by Major Topics 🚀</a></li>
+            <li><a href="#Get-news-by-geo-location">News by GEO Location 🌎</a></li>
+            <li><a href="#get-news-by-site">News by Site 📰</a></li>
+            <li><a href="#results-specification">Results 📊</a></li>
+            <li><a href="#supported-countries">Supported Countries 🌐</a></li>
+            <li><a href="#supported-languages">Supported Languages 🌍</a></li>
+            <li><a href="#article-properties">Article Properties 📝</a></li>
+            <li><a href="#getting-full-article">Getting Full Article 📰</a></li>
          </ul>
       </li>
       <li><a href="#todo">To Do 📋</a></li>
@@ -108,28 +96,50 @@ may find a `Language & region` section where you can find all of the supported c
 
 ## Getting Started
 
-This is an example of how you may give instructions on setting up your project locally. To get a local copy up and
-running follow these simple example steps.
+This section provides instructions for two different use cases:
 
-### Installation
+1. **Installing the GNews package** for immediate use.
+2. **Setting up the GNews project** for local development.
+
+### 1. Installing the GNews package
+
+To install the package and start using it in your own projects, follow these steps:
 
 ``` shell
 pip install gnews
 ```
+### 2. Setting Up GNews for Local Development
 
-### Setup with Docker
+If you want to make modifications locally, follow these steps to set up the development environment.
 
-#### Developing with docker
+#### Option 1: Setup with Docker
 
 1. Install [docker and docker-compose](https://docs.docker.com/get-docker/).
-2. Set-up your .env environment placing the mongo db credentials.
-3. Run `docker-compose up --build`
+2. Configure the `.env` file by placing your MongoDB credentials.
+3. Run the following command to build and start the Docker containers:
 
-#### Install using clone
+``` shell
+docker-compose up --build
+```
 
-1. Clone this repository `https://github.com/ranahaani/GNews.git`
-2. Start your virtual environment `virtualenv gnews`
-3. Install the requirements with `pip install -r requirements.txt`
+#### Option 2: Install Using Git Clone
+
+1. Clone this repository:
+``` shell
+git clone https://github.com/ranahaani/GNews.git
+```
+
+2. Set up a virtual environment:
+```shell
+virtualenv venv
+source venv/bin/activate  # MacOS/Linux
+.\venv\Scripts\activate  # Windows
+```
+
+3. Install the required dependencies:
+```shell
+pip install -r requirements.txt
+```
 
 <!-- USAGE EXAMPLES -->
 
@@ -167,7 +177,8 @@ print(pakistan_news[0])
 ### Get news by major topic
 
 * `GNews.get_news_by_topic(topic)`
-* Available topics:` WORLD, NATION, BUSINESS, TECHNOLOGY, ENTERTAINMENT, SPORTS, SCIENCE, HEALTH.`
+* Available topics:` WORLD, NATION, BUSINESS, TECHNOLOGY, ENTERTAINMENT, SPORTS, SCIENCE, HEALTH, POLITICS, CELEBRITIES, TV, MUSIC, MOVIES, THEATER, SOCCER, CYCLING, MOTOR SPORTS, TENNIS, COMBAT SPORTS, BASKETBALL, BASEBALL, FOOTBALL, SPORTS BETTING, WATER SPORTS, HOCKEY, GOLF, 
+CRICKET, RUGBY, ECONOMY, PERSONAL FINANCE, FINANCE, DIGITAL CURRENCIES, MOBILE, ENERGY, GAMING, INTERNET SECURITY, GADGETS, VIRTUAL REALITY, ROBOTICS, NUTRITION, PUBLIC HEALTH, MENTAL HEALTH, MEDICINE, SPACE, WILDLIFE, ENVIRONMENT, NEUROSCIENCE, PHYSICS, GEOLOGY, PALEONTOLOGY, SOCIAL SCIENCES, EDUCATION, JOBS, ONLINE EDUCATION, HIGHER EDUCATION, VEHICLES, ARTS-DESIGN, BEAUTY, FOOD, TRAVEL, SHOPPING, HOME, OUTDOORS, FASHION.`
 
 ### Get news by geo location
 
@@ -180,12 +191,45 @@ print(pakistan_news[0])
 * site should be in the format of: `"cnn.com"`
 
 ### Results specification
+All parameters are optional and can be passed during initialization. Here’s a list of the available parameters:
 
-* It's possible to pass proxy, country, language, period, start date, end date exclude websites and size during initialization
-
+- **language**: The language in which to return results (default: 'en').
+- **country**: The country code for the headlines (default: 'US').
+- **period**: The time period for which you want news.
+- **start_date**: Date after which results must have been published.
+- **end_date**: Date before which results must have been published.
+- **max_results**: The maximum number of results to return (default: 100).
+- **exclude_websites**: A list of websites to exclude from results.
+- **proxy**: A dictionary specifying the proxy settings used to route requests. The dictionary should contain a single key-value pair where the key is the protocol (`http` or `https`) and the value is the proxy address. Example:
 ```python
-google_news = GNews(language='en', country='US', period='7d', start_date=None, end_date=None, max_results=10, exclude_websites=['yahoo.com', 'cnn.com'],
-                    proxy=proxy)
+# Example with only HTTP proxy
+  proxy = {
+      'http': 'http://your_proxy_address',
+  }
+  
+# Example with only HTTPS proxy
+  proxy = {
+      'https': 'http://your_proxy_address',
+  }
+```
+  
+#### Example Initialization
+```python
+from gnews import GNews
+
+# Initialize GNews with various parameters, including proxy
+google_news = GNews(
+    language='en',
+    country='US',
+    period='7d',
+    start_date=None,
+    end_date=None,
+    max_results=10,
+    exclude_websites=['yahoo.com', 'cnn.com'],
+    proxy={
+        'https': 'https://your_proxy_address'
+    }
+)
 ```
 
 * Or change it to an existing object
@@ -212,7 +256,7 @@ example 1y would signify 1 year. Full list of operators below:
  
 Setting the start and end dates can be done by passing in either a datetime or a tuple in the form (YYYY, MM, DD).
 
-#### Supported Countries
+### Supported Countries
 
 ```python
 print(google_news.AVAILABLE_COUNTRIES)
@@ -231,7 +275,7 @@ print(google_news.AVAILABLE_COUNTRIES)
  'Republic of Korea': 'KR'}
 ```
 
-#### Supported Languages
+### Supported Languages
 
 ```python
 print(google_news.AVAILABLE_LANGUAGES)
@@ -351,8 +395,6 @@ Distributed under the MIT License. See `LICENSE` for more information.
 ## Contact
 
 Muhammad Abdullah - [@ranahaani](https://twitter.com/ranahaani) - ranahaani@gmail.com
-
-Project Link: [https://github.com/ranahaani/GNews](https://github.com/ranahaani/GNews)
 
 Project Link: [https://github.com/ranahaani/GNews](https://github.com/ranahaani/GNews)
 
