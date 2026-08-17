@@ -5,8 +5,16 @@
 [![MIT License][license-shield]][license-url]
 [![Download][download-sheild]][download-url]
 [![LinkedIn][linkedin-shield]][linkedin-url]
+[![Docs][docs-shield]][docs-url]
 
+<br />
+<br />
 
+<!-- SPONSOR -->
+<a href="https://www.searchapi.io/google-news?utm_source=github&utm_medium=sponsorship&utm_campaign=google_news_api&utm_content=ranahaani_GNews">
+  <img src="https://github.com/ranahaani/GNews/raw/master/imgs/searchapi-banner.png" alt="Sponsored by SearchApi — Google News API" width="100%">
+</a>
+<p align="center"><sub>Sponsored by <a href="https://www.searchapi.io/google-news?utm_source=github&utm_medium=sponsorship&utm_campaign=google_news_api&utm_content=ranahaani_GNews">SearchApi</a></sub></p>
 
 <!-- PROJECT LOGO -->
 <br />
@@ -65,8 +73,13 @@
             <li><a href="#supported-languages">Supported Languages 🌍</a></li>
             <li><a href="#article-properties">Article Properties 📝</a></li>
             <li><a href="#getting-full-article">Getting Full Article 📰</a></li>
+            <li><a href="#export-results">Export Results 💾</a></li>
+            <li><a href="#cli-usage">CLI Usage 💻</a></li>
+            <li><a href="#async-support">Async Support ⚡</a></li>
+            <li><a href="#url-resolution">URL Resolution 🔗</a></li>
          </ul>
       </li>
+      <li><a href="#searchapi-integration">SearchApi Integration 🔍</a></li>
       <li><a href="#todo">To Do 📋</a></li>
       <li><a href="#roadmap">Roadmap 🛣️</a></li>
       <li><a href="#contributing">Contributing 🤝</a></li>
@@ -81,7 +94,13 @@
 
 🚩 GNews is A Happy and lightweight Python Package that searches Google News RSS Feed and returns a usable JSON
 response \
-🚩 As well as you can fetch full article (**No need to write scrappers for articles fetching anymore**)
+🚩 As well as you can fetch full article (**No need to write scrappers for articles fetching anymore**) \
+🚩 Scraping a lot of articles and your IP keeps getting blocked? Route GNews requests through [Swiftproxy](https://www.swiftproxy.net/?ref=GNews) residential proxies to keep pulling full articles without getting rate-limited. GNews users get 10% off with code `PROXY90`.
+
+<a href="https://www.swiftproxy.net/?ref=GNews">
+  <img src="https://github.com/ranahaani/GNews/raw/master/imgs/swiftproxy-banner.png" alt="Swiftproxy — Residential and ISP Proxies for Web Scraping" width="100%">
+</a>
+<p align="center"><sub><a href="https://www.swiftproxy.net/?ref=GNews">Try Swiftproxy</a> — residential & ISP proxies for reliable web scraping. Get 10% off with code <b>PROXY90</b>.</sub></p>
 
 Google News cover across **141+ countries** with **41+ languages**. On the bottom left side of the Google News page you
 may find a `Language & region` section where you can find all of the supported combinations.
@@ -107,6 +126,19 @@ To install the package and start using it in your own projects, follow these ste
 
 ``` shell
 pip install gnews
+```
+
+To also enable full article text extraction:
+
+```shell
+pip install gnews[fulltext]
+```
+
+To enable real article URL resolution (resolves Google News redirect URLs):
+
+```shell
+pip install gnews[playwright]
+playwright install chromium
 ```
 ### 2. Setting Up GNews for Local Development
 
@@ -216,6 +248,9 @@ All parameters are optional and can be passed during initialization. Here’s a 
 - **end_date**: Date before which results must have been published.
 - **max_results**: The maximum number of results to return (default: 100).
 - **exclude_websites**: A list of websites to exclude from results.
+- **max_retries**: Retry attempts on HTTP 429 from Google News (default: `3`). Set to `0` to disable retries.
+- **retry_backoff_base**: Base seconds for exponential backoff between retries (default: `1.0`). Effective delay is `min(retry_backoff_max, retry_backoff_base * 2 ** attempt)` plus uniform jitter in `[0, retry_backoff_base)`.
+- **retry_backoff_max**: Cap (in seconds) for any single backoff delay (default: `60.0`).
 - **proxy**: A dictionary specifying the proxy settings used to route requests. The dictionary should contain a single key-value pair where the key is the protocol (`http` or `https`) and the value is the proxy address. Example:
 ```python
 # Example with only HTTP proxy
@@ -307,75 +342,248 @@ print(google_news.AVAILABLE_LANGUAGES)
 
 ### Article Properties
 
-- Get news returns the list with following keys: `title`, `published_date`, `description`, `url`, `publisher`.
+- Get news returns a list of articles with the following keys:
 
-| Properties   | Description                                    | Example                                                                                                                                                                                                                                                                             |
-|--------------|------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| title        | Title of the article                           | IMF Staff and Pakistan Reach Staff-Level Agreement on the Pending Reviews Under the Extended Fund Facility                                                                                                                                                                                                   |
-| url         | Google news link to article                    | [Article Link](http://news.google.com/news/url?sa=t&fd=R&ct2=us&usg=AFQjCNGNR4Qg8LGbjszT1yt2s2lMXvvufQ&clid=c3a7d30bb8a4878e06b80cf16b898331&cid=52779522121279&ei=VQU7WYjiFoLEhQHIs4HQCQ&url=https://www.theguardian.com/commentisfree/2017/jun/07/why-dont-unicorns-exist-google) |
-| published date      | Published date                                 | Wed, 07 Jun 2017 07:01:30 GMT                                                                                                                                                                                                                                                       |
-| description  | Short description of article                   | IMF Staff and Pakistan Reach Staff-Level Agreement on the Pending Reviews Under the Extended Fund Facility ...                                                                                                                                                                                                                  |
-| publisher    | Publisher of article                           | The Guardian                                                                                                                                                                                                                                                                        |                                                                                                                                                        |
+**RSS backend (default):**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `title` | Article title | `"Pakistan PM calls for ceasefire"` |
+| `description` | Short summary | `"Pakistan's prime minister said..."` |
+| `published date` | Published date (RFC 2822) | `"Wed, 07 Jun 2026 07:01:30 GMT"` |
+| `url` | Direct article URL | `"https://bbc.com/news/..."` |
+| `publisher` | Publisher name | `"BBC News"` |
+
+**SearchApi backend (additional fields):**
+
+| Field | Description | Example |
+|-------|-------------|---------|
+| `iso_date` | ISO 8601 publish date | `"2026-06-07T07:01:30Z"` |
+| `thumbnail` | Article image (base64) | `"data:image/jpeg;base64,..."` |
+| `favicon` | Publisher logo (base64) | `"data:image/png;base64,..."` |
+| `rank` | Position in search results | `1` |
 
 ## Getting full article
 
-* To read a full article you can either:
-    * Navigate to the url directly in your browser, or
-    * Use `newspaper3k` library to scrape the article
-* The article url, needed for both methods, is accessed as `article['url']`.
+First install the optional dependency:
 
-#### Using newspaper3k
+```shell
+pip install gnews[fulltext]
+```
 
-1. Install the library - `pip3 install newspaper3k`.
-2. Use `get_full_article` method from `GNews`, that creates an `newspaper.article.Article` object from the url.
+Then use `get_full_article()`:
 
 ```python
 from gnews import GNews
 
 google_news = GNews()
-json_resp = google_news.get_news('Pakistan')
-article = google_news.get_full_article(
-    json_resp[0]['url'])  # newspaper3k instance, you can access newspaper3k all attributes in article
+articles = google_news.get_news(‘Pakistan’)
+article = google_news.get_full_article(articles[0][‘url’])
+
+print(article[‘text’])   # full article text
+print(article[‘url’])    # original URL
 ```
 
-This new object contains `title`, `text` (full article) or `images` attributes. Examples:
+> **Note:** Some sites block automated requests (paywalls, Cloudflare). `get_full_article()` will raise a `NetworkError` in those cases.
+
+## Export Results
+
+Save articles directly to JSON or CSV:
 
 ```python
-article.title 
+from gnews import GNews
+
+g = GNews(max_results=10)
+articles = g.get_news("artificial intelligence")
+
+# Save to JSON
+g.save_to_json(articles, "news.json")
+
+# Save to CSV
+g.save_to_csv(articles, "news.csv")
 ```
 
-> IMF Staff and Pakistan Reach Staff-Level Agreement on the Pending Reviews Under the Extended Fund Facility'
+Both methods return the output file path. No extra dependencies required.
+
+## CLI Usage
+
+GNews includes a command-line interface out of the box:
+
+```shell
+# Search news
+gnews search "artificial intelligence"
+gnews search "Pakistan" --lang ur --country PK --max 5
+
+# Top headlines
+gnews top
+gnews top --max 10
+
+# By topic
+gnews topic TECHNOLOGY
+gnews topic BUSINESS --max 5
+
+# By site
+gnews site bbc.com
+gnews site cnn.com --max 3
+
+# By location
+gnews location Pakistan
+gnews location India --max 5
+
+# JSON output (pipe-friendly)
+gnews search "OpenAI" --json
+gnews top --json | python3 -m json.tool
+```
+
+**Options available on all commands:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--lang` | `en` | Language code |
+| `--country` | `US` | Country code |
+| `--max` | `10` | Max results |
+| `--json` | off | Output as JSON |
+
+## SearchApi Integration
+
+GNews supports [SearchApi](https://www.searchapi.io/google-news?utm_source=github&utm_medium=sponsorship&utm_campaign=google_news_api&utm_content=ranahaani_GNews) as an optional backend. When a `searchapi_key` is provided, GNews uses SearchApi instead of the default Google News RSS feed.
+
+**Benefits over RSS:**
+- Resolved article URLs (fixes broken redirect links, see [#62](https://github.com/ranahaani/GNews/issues/62))
+- Pagination beyond the ~100-result RSS cap
+- Richer article data: `thumbnail`, `favicon`, `iso_date`, `rank`, `snippet`
+- No IP blocks or rate limits from Google
+
+### Setup
+
+```shell
+pip install gnews
+```
+
+Get a free API key at [searchapi.io](https://www.searchapi.io/google-news?utm_source=github&utm_medium=sponsorship&utm_campaign=google_news_api&utm_content=ranahaani_GNews).
+
+### Usage
 
 ```python
-article.text 
+from gnews import GNews
+
+# Pass your SearchApi key to enable the SearchApi backend
+google_news = GNews(searchapi_key="YOUR_SEARCHAPI_KEY")
+
+# All existing methods work as before
+articles = google_news.get_news("artificial intelligence")
+print(articles[0])
 ```
 
-> End-of-Mission press releases include statements of IMF staff teams that convey preliminary findings after a mission. The views expressed are those of the IMF staff and do not necessarily represent the views of the IMF’s Executive Board.\n\nIMF staff and the Pakistani authorities have reached an agreement on a package of measures to complete second to fifth reviews of the authorities’ reform program supported by the IMF Extended Fund Facility (EFF) ..... (full article)
+```
+{
+  'title': 'OpenAI announces new model',
+  'description': 'Article snippet from SearchApi...',
+  'published date': '2 hours ago',
+  'iso_date': '2026-06-11T10:00:00Z',
+  'url': 'https://techcrunch.com/2026/06/11/openai-new-model',
+  'publisher': 'TechCrunch',
+  'thumbnail': 'data:image/jpeg;base64,...',
+  'favicon': 'data:image/png;base64,...',
+  'rank': 1
+}
+```
+
+### Pagination
 
 ```python
-article.images
+google_news = GNews(searchapi_key="YOUR_KEY", max_results=50)
+
+# Get page 2 results (breaks past the ~100 RSS cap)
+articles = google_news.get_news("Python", page=2)
 ```
 
-> `{'https://www.imf.org/~/media/Images/IMF/Live-Page/imf-live-rgb-h.ashx?la=en', 'https://www.imf.org/-/media/Images/IMF/Data/imf-logo-eng-sep2019-update.ashx', 'https://www.imf.org/-/media/Images/IMF/Data/imf-seal-shadow-sep2019-update.ashx', 'https://www.imf.org/-/media/Images/IMF/Social/TW-Thumb/twitter-seal.ashx', 'https://www.imf.org/assets/imf/images/footer/IMF_seal.png'}
-`
+### Additional article fields (SearchApi backend only)
 
-```python
-article.authors
-```
+| Field | Description |
+|---|---|
+| `iso_date` | Absolute ISO 8601 publish date |
+| `thumbnail` | Article image (base64) |
+| `favicon` | Publisher logo (base64) |
+| `rank` | Position in search results |
 
-> `[]`
+> The RSS backend (default, no API key required) continues to work exactly as before. The SearchApi backend is fully opt-in.
 
-Read full documentation for `newspaper3k`
-[newspaper3k](https://newspaper.readthedocs.io/en/latest/user_guide/quickstart.html#parsing-an-article)
 <!-- ToDo -->
+
+## Async Support
+
+All search methods have async equivalents — no new dependencies required:
+
+```python
+import asyncio
+from gnews import GNews
+
+g = GNews(max_results=10)
+
+# Single async query
+articles = asyncio.run(g.get_news_async("AI"))
+
+# Fetch multiple topics concurrently
+async def main():
+    ai, python, pakistan = await asyncio.gather(
+        g.get_news_async("AI"),
+        g.get_news_async("Python"),
+        g.get_news_async("Pakistan"),
+    )
+    return ai, python, pakistan
+
+asyncio.run(main())
+```
+
+| Async method | Sync equivalent |
+|---|---|
+| `get_news_async(key, page=1)` | `get_news()` |
+| `get_top_news_async()` | `get_top_news()` |
+| `get_news_by_topic_async(topic)` | `get_news_by_topic()` |
+| `get_news_by_location_async(location)` | `get_news_by_location()` |
+| `get_news_by_site_async(site)` | `get_news_by_site()` |
+
+## URL Resolution
+
+By default, Google News RSS returns redirect URLs (`news.google.com/rss/articles/...`) instead of real article URLs. Google requires JavaScript execution to resolve them — plain HTTP requests cannot follow these redirects.
+
+Install the optional Playwright extra to get real article URLs automatically:
+
+```shell
+pip install gnews[playwright]
+playwright install chromium  # one-time setup
+```
+
+Once installed, URL resolution is automatic — no code changes needed:
+
+```python
+from gnews import GNews
+
+g = GNews(max_results=5)
+articles = g.get_news("AI")
+
+# With gnews[playwright] installed:
+print(articles[0]['url'])  # https://www.politico.com/news/...
+
+# Without gnews[playwright]:
+print(articles[0]['url'])  # https://news.google.com/rss/articles/...
+```
+
+If resolution fails for a specific article (paywall, timeout, consent gate), GNews falls back to the Google URL silently — it never crashes.
+
+> **Note:** For production use without Playwright, the [SearchApi backend](#searchapi-integration) always returns real article URLs with zero setup beyond an API key.
 
 ## Todo
 
 - Save to MongoDB
 - Save to SQLite
-- Save to JSON
-- Save to .CSV file
-- More than 100 articles
+- ~~Save to JSON~~ ✅
+- ~~Save to .CSV file~~ ✅
+- ~~More than 100 articles~~ ✅
+- ~~Async support~~ ✅
+- ~~Real article URL resolution~~ ✅
+- FastAPI wrapper
 
 <!-- ROADMAP -->
 
@@ -443,5 +651,9 @@ Project Link: [https://github.com/ranahaani/GNews](https://github.com/ranahaani/
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 
 [linkedin-url]: https://linkedin.com/in/ranahaani
+
+[docs-shield]: https://img.shields.io/readthedocs/gnews?style=for-the-badge
+
+[docs-url]: https://gnews.readthedocs.io/en/latest/
 
 [demo-gif]: https://github.com/ranahaani/GNews/raw/master/imgs/gnews.gif

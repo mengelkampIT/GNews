@@ -1,4 +1,12 @@
+from __future__ import annotations
+
+import asyncio
+import csv
+import functools
+import json
 import logging
+import random
+import time
 import urllib.request
 import datetime
 import inspect
@@ -15,13 +23,28 @@ from gnews.exceptions import (
     InvalidConfigError,
     NetworkError,
 )
+from gnews.backends.searchapi import SearchApiBackend
 
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 class GNews:
-    def __init__(self, language="en", country="US", max_results=100, period=None, start_date=None, end_date=None,
-                 exclude_websites=None, proxy=None):
+    def __init__(
+        self,
+        language: str = "en",
+        country: str = "US",
+        max_results: int = 100,
+        period: str | None = None,
+        start_date: tuple | datetime.datetime | None = None,
+        end_date: tuple | datetime.datetime | None = None,
+        exclude_websites: list[str] | None = None,
+        proxy: dict | None = None,
+        searchapi_key: str | None = None,
+        max_retries: int = 3,
+        retry_backoff_base: float = 1.0,
+        retry_backoff_max: float = 60.0,
+    ) -> None:
         """
         Initialize the GNews client with configuration options.
 
@@ -33,7 +56,19 @@ class GNews:
         :param end_date: Date before which results must have been published
         :param exclude_websites: List of websites to exclude from results
         :param proxy: Proxy settings as a dict {protocol: address}
+        :param searchapi_key: Optional SearchAPI key to enable the paid backend
+        :param max_retries: Maximum retry attempts on HTTP 429 responses from Google News.
+            Set to 0 to disable retries and raise immediately. Defaults to 3.
+        :param retry_backoff_base: Base seconds for exponential backoff between retries.
+            Actual wait is ``min(retry_backoff_max, retry_backoff_base * 2**attempt)``
+            plus uniform jitter in ``[0, retry_backoff_base)``. Defaults to 1.0.
+        :param retry_backoff_max: Maximum seconds any single backoff wait may reach.
+            Caps the exponential growth. Defaults to 60.0.
         """
+        if max_retries < 0:
+            raise InvalidConfigError("max_retries must be >= 0.")
+        if retry_backoff_base <= 0 or retry_backoff_max <= 0:
+            raise InvalidConfigError("retry_backoff_base and retry_backoff_max must be > 0.")
         self.countries = tuple(AVAILABLE_COUNTRIES),
         self.languages = tuple(AVAILABLE_LANGUAGES),
 
@@ -50,8 +85,12 @@ class GNews:
         self.start_date = start_date
         self._exclude_websites = exclude_websites if exclude_websites and isinstance(exclude_websites, list) else []
         self._proxy = proxy if proxy else None
+        self._searchapi = SearchApiBackend(searchapi_key) if searchapi_key else None
+        self._max_retries = max_retries
+        self._retry_backoff_base = retry_backoff_base
+        self._retry_backoff_max = retry_backoff_max
 
-    def _ceid(self):
+    def _ceid(self) -> str:
         time_query = ''
         if self._start_date or self._end_date:
             if inspect.stack()[2][3] != 'get_news':
@@ -154,35 +193,33 @@ class GNews:
     def country(self, country):
         self._country = AVAILABLE_COUNTRIES.get(country, country)
 
-    def get_full_article(self, url):
-        """
-        Download and parse a full article using newspaper3k.
-        """
+    def get_full_article(self, url: str) -> dict:
         try:
-            import newspaper
+            import trafilatura
         except ImportError as e:
-            raise InvalidConfigError(
-                "get_full_article() requires the `newspaper3k` library. "
-                "Install it via `pip install newspaper3k`."
+            raise ImportError(
+                "get_full_article() requires trafilatura. "
+                "Install it with: pip install gnews[fulltext]"
             ) from e
 
-        try:
-            article = newspaper.Article(url="%s" % url, language=self._language)
-            article.download()
-            article.parse()
-        except Exception as error:
-            raise NetworkError(f"An error occurred while fetching the article: {error}") from error
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            raise NetworkError(f"Could not download article from {url}")
 
-        return article
+        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        if not text:
+            raise NetworkError(f"Could not extract article text from {url}")
+
+        return {"text": text, "url": url}
 
     @staticmethod
-    def _clean(html):
+    def _clean(html: str) -> str:
         soup = Soup(html, features="html.parser")
         text = soup.get_text()
         text = text.replace('\xa0', ' ')
         return text
 
-    def _process(self, item):
+    def _process(self, item: dict) -> dict | None:
         url = process_url(item, self._exclude_websites, self._proxy)
         if url:
             title = item.get("title", "")
@@ -210,8 +247,18 @@ class GNews:
                        "{'href': link to publisher's website," + indent2 + "'title': name of the publisher}}")
 
     @docstring_parameter(standard_output)
-    def get_news(self, key):
+    def get_news(self, key: str, page: int = 1) -> list[dict]:
         if key:
+            if self._searchapi:
+                return self._searchapi.get_news(
+                    query=key,
+                    language=self._language,
+                    country=self._country,
+                    start_date=self.start_date,
+                    end_date=self.end_date,
+                    max_results=self._max_results,
+                    page=page,
+                )
             if self._max_results > 100:
                 return self._get_news_more_than_100(key)
             key = "%20".join(key.split(" "))
@@ -219,13 +266,38 @@ class GNews:
             return self._get_news(query)
         raise InvalidConfigError("Search key cannot be empty.")
 
-    def _get_news_more_than_100(self, key):
+    def _get_news_more_than_100(self, key: str) -> list[dict]:
+        """Walk past the Google News ~100-result ceiling using rolling date windows.
+
+        Caveats (callers building precise temporal pipelines should know):
+
+        * Any ``start_date``, ``end_date``, or ``period`` configured on the client is
+          **discarded** before pagination begins. Date filters apply only when
+          ``max_results <= 100``.
+        * The walker steps backward in 7-day windows anchored on the earliest
+          ``published_date`` seen so far. Results returned may extend significantly
+          earlier than any date you intended to filter on.
+        * Articles whose ``published date`` cannot be parsed are skipped for window
+          anchoring but still returned, which can stall the window at the previous
+          earliest date.
+        * Per-call de-duplication is in-memory (``seen_urls``) and does not persist
+          across calls; callers needing cross-run dedup must layer their own.
+
+        If you need strict date precision, keep ``max_results <= 100`` and call
+        multiple times with explicit windows instead.
+        """
         articles = []
         seen_urls = set()
         earliest_date = None
 
         if self._start_date or self._end_date or self._period:
-            warnings.warn("Searches for over 100 articles ignore date ranges.", category=UserWarning)
+            warnings.warn(
+                "Searches for over 100 articles ignore date ranges; "
+                "any start_date, end_date, or period set on the client will be cleared. "
+                "Keep max_results <= 100 if you need precise temporal filtering.",
+                category=UserWarning,
+                stacklevel=2,
+            )
 
         self._start_date = None
         self._end_date = None
@@ -261,12 +333,12 @@ class GNews:
         return articles
 
     @docstring_parameter(standard_output)
-    def get_top_news(self):
+    def get_top_news(self) -> list[dict]:
         query = "?"
         return self._get_news(query)
 
     @docstring_parameter(standard_output, ', '.join(TOPICS), ', '.join(SECTIONS.keys()))
-    def get_news_by_topic(self, topic: str):
+    def get_news_by_topic(self, topic: str) -> list[dict]:
         topic = topic.upper()
         if topic in TOPICS:
             query = '/headlines/section/topic/' + topic + '?'
@@ -277,33 +349,93 @@ class GNews:
         raise InvalidConfigError(f"Invalid topic '{topic}'. Must be one of {list(TOPICS) + list(SECTIONS.keys())}.")
 
     @docstring_parameter(standard_output)
-    def get_news_by_location(self, location: str):
+    def get_news_by_location(self, location: str) -> list[dict]:
         if location:
             query = '/headlines/section/geo/' + location + '?'
             return self._get_news(query)
         raise InvalidConfigError("Location cannot be empty.")
 
     @docstring_parameter(standard_output)
-    def get_news_by_site(self, site: str):
+    def get_news_by_site(self, site: str) -> list[dict]:
         if site:
             key = "site:{}".format(site)
             return self.get_news(key)
         raise InvalidConfigError("Site domain cannot be empty.")
 
-    def _get_news(self, query):
+    async def _run_in_executor(self, func, *args):
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, functools.partial(func, *args))
+
+    async def get_news_async(self, key: str, page: int = 1) -> list[dict]:
+        return await self._run_in_executor(self.get_news, key, page)
+
+    async def get_top_news_async(self) -> list[dict]:
+        return await self._run_in_executor(self.get_top_news)
+
+    async def get_news_by_topic_async(self, topic: str) -> list[dict]:
+        return await self._run_in_executor(self.get_news_by_topic, topic)
+
+    async def get_news_by_location_async(self, location: str) -> list[dict]:
+        return await self._run_in_executor(self.get_news_by_location, location)
+
+    async def get_news_by_site_async(self, site: str) -> list[dict]:
+        return await self._run_in_executor(self.get_news_by_site, site)
+
+    def save_to_json(self, articles: list[dict], path: str) -> str:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(articles, f, ensure_ascii=False, indent=2)
+        return path
+
+    def save_to_csv(self, articles: list[dict], path: str) -> str:
+        if not articles:
+            open(path, "w").close()
+            return path
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=articles[0].keys())
+            writer.writeheader()
+            writer.writerows(articles)
+        return path
+
+    def _backoff_delay(self, attempt: int) -> float:
+        """Exponential backoff with uniform jitter, capped at retry_backoff_max."""
+        capped = min(self._retry_backoff_max, self._retry_backoff_base * (2 ** attempt))
+        jitter = random.uniform(0, self._retry_backoff_base)
+        return capped + jitter
+
+    def _sleep(self, seconds: float) -> None:
+        """Indirection for tests to patch sleep without touching time.sleep globally."""
+        time.sleep(seconds)
+
+    def _fetch_feed(self, url: str):
+        if self._proxy:
+            proxy_handler = urllib.request.ProxyHandler(self._proxy)
+            return feedparser.parse(url, agent=USER_AGENT, handlers=[proxy_handler])
+        return feedparser.parse(url, agent=USER_AGENT)
+
+    def _get_news(self, query: str) -> list[dict]:
         url = BASE_URL + query + self._ceid()
-        try:
-            if self._proxy:
-                proxy_handler = urllib.request.ProxyHandler(self._proxy)
-                feed_data = feedparser.parse(url, agent=USER_AGENT, handlers=[proxy_handler])
-            else:
-                feed_data = feedparser.parse(url, agent=USER_AGENT)
-
-            if feed_data.status == 429:
-                raise RateLimitError("Rate limit exceeded while fetching news.")
-            return [item for item in map(self._process, feed_data.entries[:self._max_results]) if item]
-
-        except RateLimitError:
-            raise
-        except Exception as err:
-            raise NetworkError(f"Failed to fetch or parse news feed: {err}") from err
+        attempts = self._max_retries + 1
+        last_error: RateLimitError | None = None
+        for attempt in range(attempts):
+            try:
+                feed_data = self._fetch_feed(url)
+                if feed_data.status == 429:
+                    last_error = RateLimitError(
+                        f"Rate limit exceeded while fetching news (attempt {attempt + 1}/{attempts})."
+                    )
+                    if attempt < attempts - 1:
+                        delay = self._backoff_delay(attempt)
+                        logger.warning(
+                            "Google News returned 429; backing off %.2fs before retry %d/%d",
+                            delay, attempt + 2, attempts,
+                        )
+                        self._sleep(delay)
+                        continue
+                    raise last_error
+                return [item for item in map(self._process, feed_data.entries[:self._max_results]) if item]
+            except RateLimitError:
+                raise
+            except Exception as err:
+                raise NetworkError(f"Failed to fetch or parse news feed: {err}") from err
+        # unreachable, but appease static checkers
+        raise last_error if last_error else NetworkError("Failed to fetch news feed.")
